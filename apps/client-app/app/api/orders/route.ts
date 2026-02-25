@@ -1,23 +1,48 @@
 import { NextResponse } from "next/server";
-import { publishOrder, type Order } from "@kafka-food-court/kafka-core";
+import {
+  publishOrder,
+  getOrdersByUser,
+  saveOrder,
+  type Order,
+} from "@kafka-food-court/kafka-core";
 import { v4 as uuidv4 } from "uuid";
+import { getAuthenticatedUser } from "@/lib/session";
+
+export async function GET(request: Request) {
+  const user = await getAuthenticatedUser(request);
+
+  if (!user) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  const orders = await getOrdersByUser(user.id);
+  return NextResponse.json({ success: true, orders });
+}
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const user = await getAuthenticatedUser(request);
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await request.json() as { foodType: string; quantity?: number };
+    const quantity = Number(body.quantity) || 1;
+    const foodType = body.foodType;
 
     const order: Order = {
       orderId: uuidv4(),
-      userId: body.userId || "anonymous",
-      userName: body.userName || "Guest",
-      foodType: body.foodType,
-      item: body.item,
-      quantity: Number(body.quantity) || 1,
+      userId: user.id,
+      userName: user.name,
+      foodType: foodType as Order["foodType"],
+      item: `${foodType} Special`,
+      quantity,
       status: "PENDING",
       createdAt: new Date().toISOString(),
     };
 
     await publishOrder(order);
+    await saveOrder(order);
 
     return NextResponse.json({ success: true, order });
   } catch (error: unknown) {

@@ -18,6 +18,15 @@ export default function KitchenApp() {
   const kitchenName = process.env.NEXT_PUBLIC_KITCHEN_NAME || "Kitchen Worker";
 
   useEffect(() => {
+    void fetch("/api/orders")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.success) {
+          setOrders(payload.orders);
+        }
+      })
+      .catch(() => undefined);
+
     const eventSource = new EventSource("/api/stream");
 
     eventSource.onopen = () => setIsConnected(true);

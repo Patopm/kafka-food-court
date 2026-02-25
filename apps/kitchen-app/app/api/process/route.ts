@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { publishOrderStatus } from "@kafka-food-court/kafka-core";
+import {
+  publishOrderStatus,
+  updateOrderStatusInDb,
+} from "@kafka-food-court/kafka-core";
 
 const KITCHEN_ID = process.env.KITCHEN_ID || "unknown-kitchen";
 
@@ -12,7 +15,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Publicamos el nuevo estado en el topic `order-status`
+    await updateOrderStatusInDb({ orderId, status, kitchenId: KITCHEN_ID, reason });
     await publishOrderStatus(orderId, status, KITCHEN_ID, reason);
 
     return NextResponse.json({ success: true });

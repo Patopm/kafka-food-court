@@ -49,3 +49,20 @@ export {
   createDashboardConsumer,
 } from "./consumers/dashboardConsumer";
 export type { DashboardConsumerCallbacks } from "./consumers/dashboardConsumer";
+
+// Persistence
+export {
+  registerUser,
+  authenticateUser,
+  createSession,
+  revokeSession,
+  getSessionUser,
+  saveOrder,
+  getOrderById,
+  updateOrderStatusInDb,
+  getOrdersByUser,
+  getRecentOrders,
+  saveReaction,
+  getDashboardStatsSnapshot,
+} from "./db/store";
+export type { PublicUser } from "./db/store";

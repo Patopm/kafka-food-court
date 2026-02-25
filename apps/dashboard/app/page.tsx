@@ -18,6 +18,15 @@ export default function DashboardApp() {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
+    void fetch("/api/stats")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.success) {
+          setStats(payload.stats);
+        }
+      })
+      .catch(() => undefined);
+
     const eventSource = new EventSource("/api/stream");
 
     eventSource.onopen = () => setIsConnected(true);

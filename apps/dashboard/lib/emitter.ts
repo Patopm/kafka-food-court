@@ -1,9 +1,9 @@
 import { EventEmitter } from "events";
 import {
   createDashboardConsumer,
-  type DashboardStats,
   type ReactionEvent,
-  type Order
+  type Order,
+  getDashboardStatsSnapshot,
 } from "@kafka-food-court/kafka-core";
 
 class DashboardEmitter extends EventEmitter { }
@@ -16,17 +16,25 @@ export async function startDashboardConsumer() {
   isConsuming = true;
 
   try {
+    const emitLatestStats = async () => {
+      const stats = await getDashboardStatsSnapshot();
+      dashboardEmitter.emit("stats", stats);
+    };
+
     await createDashboardConsumer({
-      onStatsUpdate: (stats: DashboardStats) => {
-        dashboardEmitter.emit("stats", stats);
+      onStatsUpdate: () => {
+        void emitLatestStats();
       },
       onOrderCreated: (order: Order) => {
+        void emitLatestStats();
         dashboardEmitter.emit("event", `New order: ${order.item} (${order.orderId.substring(0, 4)})`);
       },
       onStatusUpdate: (update) => {
+        void emitLatestStats();
         dashboardEmitter.emit("event", `Order ${update.orderId.substring(0, 4)} is now ${update.status}`);
       },
       onReaction: (reaction: ReactionEvent) => {
+        void emitLatestStats();
         dashboardEmitter.emit("event", `Reaction: ${reaction.reaction}`);
       }
     });

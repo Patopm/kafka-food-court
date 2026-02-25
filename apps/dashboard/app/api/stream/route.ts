@@ -1,5 +1,5 @@
 import { dashboardEmitter, startDashboardConsumer } from "@/lib/emitter";
-import type { DashboardStats } from "@kafka-food-court/kafka-core";
+import { getDashboardStatsSnapshot, type DashboardStats } from "@kafka-food-court/kafka-core";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,11 @@ export async function GET() {
 
   const stream = new ReadableStream({
     start(controller) {
+      void getDashboardStatsSnapshot().then((initialStats) => {
+        const data = `data: ${JSON.stringify({ type: "stats", payload: initialStats })}\n\n`;
+        controller.enqueue(encoder.encode(data));
+      }).catch(() => undefined);
+
       statsListener = (stats: DashboardStats) => {
         try {
           const data = `data: ${JSON.stringify({ type: "stats", payload: stats })}\n\n`;
