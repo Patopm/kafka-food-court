@@ -11,6 +11,7 @@ import {
 } from "recharts";
 
 const COLORS = ["#f97316", "#0ea5e9", "#10b981", "#8b5cf6", "#ef4444"];
+const DASHBOARD_API_BASE = "/dashboard/api";
 
 export default function DashboardApp() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
@@ -18,7 +19,7 @@ export default function DashboardApp() {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    void fetch("/api/stats")
+    void fetch(`${DASHBOARD_API_BASE}/stats`)
       .then((response) => response.json())
       .then((payload) => {
         if (payload.success) {
@@ -27,7 +28,7 @@ export default function DashboardApp() {
       })
       .catch(() => undefined);
 
-    const eventSource = new EventSource("/api/stream");
+    const eventSource = new EventSource(`${DASHBOARD_API_BASE}/stream`);
 
     eventSource.onopen = () => setIsConnected(true);
     eventSource.onerror = () => setIsConnected(false);

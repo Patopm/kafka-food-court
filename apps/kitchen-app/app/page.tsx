@@ -9,6 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Toaster, toast } from "sonner";
 import { ChefHat, ServerCrash, Radio, PanelsTopLeft } from "lucide-react";
 
+const KITCHEN_API_BASE = "/kitchen/api";
+
 export default function KitchenApp() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [assignedPartitions, setAssignedPartitions] = useState<number[]>([]);
@@ -18,7 +20,7 @@ export default function KitchenApp() {
   const kitchenName = process.env.NEXT_PUBLIC_KITCHEN_NAME || "Kitchen Worker";
 
   useEffect(() => {
-    void fetch("/api/orders")
+    void fetch(`${KITCHEN_API_BASE}/orders`)
       .then((response) => response.json())
       .then((payload) => {
         if (payload.success) {
@@ -27,7 +29,7 @@ export default function KitchenApp() {
       })
       .catch(() => undefined);
 
-    const eventSource = new EventSource("/api/stream");
+    const eventSource = new EventSource(`${KITCHEN_API_BASE}/stream`);
 
     eventSource.onopen = () => setIsConnected(true);
     eventSource.onerror = () => setIsConnected(false);
@@ -62,7 +64,7 @@ export default function KitchenApp() {
 
   const updateOrderStatus = async (orderId: string, status: OrderStatus) => {
     try {
-      const res = await fetch("/api/process", {
+      const res = await fetch(`${KITCHEN_API_BASE}/process`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ orderId, status }),
