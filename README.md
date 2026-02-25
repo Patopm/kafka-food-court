@@ -1,135 +1,109 @@
-# Turborepo starter
+# Kafka Food Court
 
-This Turborepo starter is maintained by the Turborepo core team.
+A monorepo-based learning project that simulates a food-court workflow using Kafka.
 
-## Using this example
+This repository is intentionally educational and demo-oriented. It is **not** designed for production use.
 
-Run the following command:
+## What This Monorepo Contains
 
-```sh
-npx create-turbo@latest
+- `apps/client-app`: creates orders, sends reactions, and listens to order status updates.
+- `apps/kitchen-app`: consumes orders as a kitchen worker and publishes status changes.
+- `apps/dashboard`: consumes events from multiple topics and shows live aggregate metrics.
+- `packages/kafka-core`: shared Kafka client, producers, consumers, constants, and event/order types.
+
+## Kafka Concepts Covered
+
+This implementation touches the following core Kafka concepts:
+
+- Topics and event-driven communication:
+  - `orders`
+  - `order-status`
+  - `reactions`
+  - `dead-letter`
+  - `kitchen-metrics`
+- Producers for publishing domain events (`order created`, `status updated`, `reaction`).
+- Consumers for processing events in different services/apps.
+- Consumer groups:
+  - Shared group for kitchens (`kitchens`) to load-balance work.
+  - Independent groups (`dashboard`, `client-status`) to consume the same events for different purposes.
+- Partitioning and keys:
+  - Orders are keyed by `foodType` to preserve ordering per food type and route consistently to partitions.
+  - Reactions are keyed by `userId` to preserve per-user ordering.
+- Ordering guarantees within partitions (single-message processing in kitchen consumer).
+- Rebalancing behavior in consumer groups (kitchen consumer emits assignment updates).
+- Message validation at producer boundary (invalid orders are rejected).
+- Dead Letter Queue (DLQ) pattern via `dead-letter` topic for invalid order payloads.
+- Event metadata via Kafka headers (`event-type`, `content-type`).
+- At-least-once style stream processing with in-memory app-side projections for demo stats.
+
+## End-to-End Event Flow
+
+1. `client-app` publishes a new order to `orders`.
+2. `kitchen-app` consumers (same group) receive and process assigned partitions.
+3. `kitchen-app` publishes status transitions to `order-status`.
+4. `client-app` listens for status updates using a separate consumer group.
+5. `dashboard` consumes `orders`, `order-status`, and `reactions` to build live stats.
+6. Invalid orders are routed to `dead-letter`.
+
+## Local Run (Demo)
+
+### Prerequisites
+
+- Node.js `>=18`
+- Bun `1.3.3` (project package manager)
+- Docker
+
+### 1. Install dependencies
+
+```bash
+bun install
 ```
 
-## What's inside?
+### 2. Start Kafka infrastructure
 
-This Turborepo includes the following packages/apps:
-
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+```bash
+docker compose up -d
+./scripts/init-topics.sh
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Kafka UI will be available at `http://localhost:8080`.
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
+### 3. Configure env files
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
+Create `.env.local` for each app from its example:
 
-### Develop
-
-To develop all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
+```bash
+cp apps/client-app/env.example apps/client-app/.env.local
+cp apps/kitchen-app/env.example apps/kitchen-app/.env.local
+cp apps/dashboard/env.example apps/dashboard/.env.local
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### 4. Run the apps
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
+Run all apps:
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+```bash
+bun run dev
 ```
 
-### Remote Caching
+Or run per app:
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
+```bash
+bun run dev:client
+bun run dev:kitchen
+bun run dev:dashboard
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+### 5. Open the apps
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+- Client: `http://localhost:3000`
+- Kitchen: `http://localhost:3001`
+- Dashboard: `http://localhost:3002`
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
+## Notes and Limitations (Intentional for Learning)
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+- In-memory projections/state are reset on restart.
+- Single-broker setup and replication factor `1`.
+- Simplified error handling and retry strategy.
+- No auth, hardening, or production-grade observability.
+- Topic bootstrap is script-driven for local experimentation.
