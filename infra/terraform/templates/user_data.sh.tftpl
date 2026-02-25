@@ -1,0 +1,212 @@
+#!/bin/bash
+set -euxo pipefail
+
+exec > >(tee /var/log/kafka-food-court-bootstrap.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+export NEXT_TELEMETRY_DISABLED=1
+
+retry() {
+  local attempts="$1"
+  shift
+  local n=1
+  until "$@"; do
+    if [ "$n" -ge "$attempts" ]; then
+      echo "Command failed after $${attempts} attempts: $*"
+      return 1
+    fi
+    echo "Attempt $${n} failed. Retrying in 10s: $*"
+    n=$((n + 1))
+    sleep 10
+  done
+}
+
+retry 5 apt-get update
+retry 5 apt-get install -y \
+  ca-certificates \
+  curl \
+  git \
+  jq \
+  nginx \
+  docker.io \
+  unzip
+
+if ! retry 3 apt-get install -y docker-compose-plugin; then
+  retry 3 apt-get install -y docker-compose
+fi
+
+# Ensure SSM agent is available and running (helps remote recovery/debugging)
+if ! retry 3 apt-get install -y amazon-ssm-agent; then
+  snap install amazon-ssm-agent --classic || true
+fi
+systemctl enable amazon-ssm-agent || true
+systemctl restart amazon-ssm-agent || true
+
+systemctl enable docker
+systemctl start docker
+
+id -u ubuntu >/dev/null 2>&1 && usermod -aG docker ubuntu
+
+# Add swap to avoid OOM during Next.js builds on small instances
+if ! swapon --show | grep -q "/swapfile"; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q "/swapfile" /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+fi
+
+# Install Bun for ubuntu user and make it globally accessible
+sudo -u ubuntu bash -lc 'curl -fsSL https://bun.sh/install | bash'
+ln -sf /home/ubuntu/.bun/bin/bun /usr/local/bin/bun
+
+mkdir -p /opt/kafka-food-court
+chown -R ubuntu:ubuntu /opt/kafka-food-court
+
+sudo -u ubuntu bash -lc '
+set -euxo pipefail
+cd /opt/kafka-food-court
+if [ ! -d .git ]; then
+  git clone ${repo_url} .
+else
+git fetch --all --tags
+fi
+git checkout ${app_git_ref}
+git pull --ff-only origin ${app_git_ref} || true
+bun install || (sleep 10 && bun install)
+mkdir -p data
+cp apps/client-app/env.example apps/client-app/.env.local
+cp apps/dashboard/env.example apps/dashboard/.env.local
+'
+
+PUBLIC_IP="$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)"
+
+# Configure kafka advertised listener for remote kitchens
+sed -i "s|PLAINTEXT_HOST://localhost:29092|PLAINTEXT_HOST://$${PUBLIC_IP}:29092|g" /opt/kafka-food-court/docker-compose.yml
+
+# Configure app envs
+cat > /opt/kafka-food-court/apps/client-app/.env.local <<ENV
+KAFKA_BROKER=$${PUBLIC_IP}:29092
+DB_FILE_PATH=/opt/kafka-food-court/data/food-court-db.json
+NEXT_PUBLIC_APP_NAME=Food Court
+ENV
+
+cat > /opt/kafka-food-court/apps/dashboard/.env.local <<ENV
+KAFKA_BROKER=$${PUBLIC_IP}:29092
+DB_FILE_PATH=/opt/kafka-food-court/data/food-court-db.json
+ENV
+
+# Start Kafka and initialize topics
+cd /opt/kafka-food-court
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_BIN="docker compose"
+else
+  COMPOSE_BIN="docker-compose"
+fi
+
+$${COMPOSE_BIN} up -d kafka
+sleep 15
+sudo -u ubuntu bash -lc 'cd /opt/kafka-food-court && ./scripts/init-topics.sh'
+
+if [ "${enable_kafka_ui}" = "true" ]; then
+  $${COMPOSE_BIN} up -d kafka-ui
+fi
+
+# Build apps once, then run via systemd
+sudo -u ubuntu bash -lc 'cd /opt/kafka-food-court/apps/client-app && NODE_OPTIONS=--max-old-space-size=512 bun run build || (sleep 10 && NODE_OPTIONS=--max-old-space-size=512 bun run build)'
+sudo -u ubuntu bash -lc 'cd /opt/kafka-food-court/apps/dashboard && NODE_OPTIONS=--max-old-space-size=512 bun run build || (sleep 10 && NODE_OPTIONS=--max-old-space-size=512 bun run build)'
+sudo -u ubuntu bash -lc 'cd /opt/kafka-food-court/apps/kitchen-app && NODE_OPTIONS=--max-old-space-size=512 bun run build || (sleep 10 && NODE_OPTIONS=--max-old-space-size=512 bun run build)'
+
+cat > /etc/systemd/system/kfc-client.service <<'UNIT'
+[Unit]
+Description=Kafka Food Court Client App
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/kafka-food-court/apps/client-app
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ubuntu/.bun/bin
+ExecStart=/usr/local/bin/bun run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /etc/systemd/system/kfc-dashboard.service <<'UNIT'
+[Unit]
+Description=Kafka Food Court Dashboard App
+After=network.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/kafka-food-court/apps/dashboard
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ubuntu/.bun/bin
+ExecStart=/usr/local/bin/bun run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+${kitchen_systemd_units}
+
+systemctl daemon-reload
+systemctl enable kfc-client kfc-dashboard ${kitchen_service_names}
+systemctl restart kfc-client kfc-dashboard ${kitchen_service_names}
+
+cat > /etc/nginx/sites-available/kafka-food-court <<'NGINX'
+server {
+  listen 80;
+  server_name _;
+
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /dashboard/ {
+    rewrite ^/dashboard/?(.*)$ /$1 break;
+    proxy_pass http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+${kitchen_nginx_locations}
+}
+NGINX
+
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/kafka-food-court /etc/nginx/sites-enabled/kafka-food-court
+rm -f /etc/nginx/conf.d/kafka-food-court-dashboard.conf
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+
+# Final health checks to ensure bootstrap completed end-to-end.
+for _ in $(seq 1 20); do
+  if curl -sf http://127.0.0.1/ >/dev/null && curl -sf http://127.0.0.1/dashboard/ >/dev/null; then
+    echo "Bootstrap health checks passed."
+    exit 0
+  fi
+  sleep 5
+done
+
+echo "Bootstrap completed, but health checks did not pass in time."
+systemctl status nginx kfc-client kfc-dashboard --no-pager -l || true
+exit 1
