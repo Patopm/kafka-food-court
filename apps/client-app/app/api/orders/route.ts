@@ -5,8 +5,12 @@ import {
   saveOrder,
   type Order,
 } from "@kafka-food-court/kafka-core";
-import { v4 as uuidv4 } from "uuid";
+import { randomBytes } from "crypto";
 import { getAuthenticatedUser } from "@/lib/session";
+
+function createOrderId(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export async function GET(request: Request) {
   const user = await getAuthenticatedUser(request);
@@ -31,7 +35,7 @@ export async function POST(request: Request) {
     const foodType = body.foodType;
 
     const order: Order = {
-      orderId: uuidv4(),
+      orderId: createOrderId(),
       userId: user.id,
       userName: user.name,
       foodType: foodType as Order["foodType"],
