@@ -6,6 +6,8 @@ export {
   FOOD_TYPE_PARTITION,
   VALID_FOOD_TYPES,
   VALID_REACTIONS,
+  ORDERS_TOPIC_PARTITIONS,
+  getOrderPartition,
 } from "./constants";
 export type { FoodType, Topic, ConsumerGroup } from "./constants";
 

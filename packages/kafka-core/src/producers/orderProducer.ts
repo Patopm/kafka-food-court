@@ -1,6 +1,6 @@
 import { Producer } from "kafkajs";
 import { kafka } from "../client";
-import { TOPICS, VALID_FOOD_TYPES } from "../constants";
+import { TOPICS, VALID_FOOD_TYPES, getOrderPartition } from "../constants";
 import type { Order, DeadLetterMessage } from "../types/order";
 
 let producer: Producer | null = null;
@@ -67,15 +67,17 @@ export async function publishOrder(order: Order): Promise<void> {
     throw new Error(`Order rejected → DLQ: ${validationError}`);
   }
 
+  const partition = getOrderPartition(order.orderId);
+
   const send = async () => {
     const p = await getProducer();
     await p.send({
       topic: TOPICS.ORDERS,
       messages: [
         {
-          // Partition key — ensures same food type always
-          // goes to the same partition (and kitchen)
-          key: order.foodType,
+          // Partition by orderId for more uniform traffic distribution.
+          key: order.orderId,
+          partition,
           value: JSON.stringify(order),
           headers: {
             "content-type": "application/json",

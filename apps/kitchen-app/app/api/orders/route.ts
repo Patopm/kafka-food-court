@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { FOOD_TYPE_PARTITION, getRecentOrders } from "@kafka-food-court/kafka-core";
+import { getOrderPartition, getRecentOrders } from "@kafka-food-court/kafka-core";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -24,8 +24,10 @@ export async function GET(request: Request) {
       return order.kitchenId === kitchenId;
     }
 
-    const partition = FOOD_TYPE_PARTITION[order.foodType];
-    return typeof partition === "number" && partitions.has(partition);
+    const partition = typeof order.partition === "number"
+      ? order.partition
+      : getOrderPartition(order.orderId);
+    return partitions.has(partition);
   });
 
   return NextResponse.json({ success: true, orders: filteredOrders });

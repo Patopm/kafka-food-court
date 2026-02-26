@@ -4,6 +4,7 @@ import {
   getOrdersByUser,
   saveOrder,
   type Order,
+  getOrderPartition,
 } from "@kafka-food-court/kafka-core";
 import { randomBytes } from "crypto";
 import { getAuthenticatedUser } from "@/lib/session";
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       status: "PENDING",
       createdAt: new Date().toISOString(),
     };
+    order.partition = getOrderPartition(order.orderId);
 
     await publishOrder(order);
     await saveOrder(order);

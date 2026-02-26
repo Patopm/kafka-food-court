@@ -64,7 +64,7 @@ locals {
       User=ubuntu
       WorkingDirectory=/opt/kafka-food-court/apps/kitchen-app
       Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/ubuntu/.bun/bin
-      Environment=KAFKA_BROKER=$${PUBLIC_IP}:29092
+      Environment=KAFKA_BROKER=127.0.0.1:29092
       Environment=DB_FILE_PATH=/opt/kafka-food-court/data/food-court-db.json
       Environment=KITCHEN_ID=${kitchen}
       Environment=NEXT_PUBLIC_KITCHEN_NAME=${kitchen}

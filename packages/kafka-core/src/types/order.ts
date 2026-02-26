@@ -18,6 +18,7 @@ export interface Order {
   status: OrderStatus;
   createdAt: string; // ISO string — serializable through Kafka
   kitchenId?: string;
+  partition?: number;
 }
 
 export interface OrderStatusUpdate {
