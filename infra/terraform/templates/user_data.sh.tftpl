@@ -89,6 +89,7 @@ cat > /opt/kafka-food-court/apps/client-app/.env.local <<ENV
 KAFKA_BROKER=$${PUBLIC_IP}:29092
 DB_FILE_PATH=/opt/kafka-food-court/data/food-court-db.json
 NEXT_PUBLIC_APP_NAME=Food Court
+SESSION_COOKIE_SECURE=false
 ENV
 
 cat > /opt/kafka-food-court/apps/dashboard/.env.local <<ENV
