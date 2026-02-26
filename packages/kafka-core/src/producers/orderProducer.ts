@@ -10,9 +10,35 @@ async function getProducer(): Promise<Producer> {
     producer = kafka.producer({
       allowAutoTopicCreation: false,
     });
-    await producer.connect();
+    try {
+      await producer.connect();
+    } catch (error) {
+      producer = null;
+      throw error;
+    }
   }
   return producer;
+}
+
+async function resetProducer(): Promise<void> {
+  if (!producer) return;
+  try {
+    await producer.disconnect();
+  } catch {
+    // Best effort cleanup; we'll recreate on next send.
+  } finally {
+    producer = null;
+  }
+}
+
+function isRecoverableProducerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("producer is disconnected") ||
+    message.includes("the producer is disconnected") ||
+    message.includes("getaddrinfo enotfound") ||
+    message.includes("connection error")
+  );
 }
 
 function validateOrder(order: Order): string | null {
@@ -28,7 +54,6 @@ function validateOrder(order: Order): string | null {
 }
 
 export async function publishOrder(order: Order): Promise<void> {
-  const p = await getProducer();
   const validationError = validateOrder(order);
 
   if (validationError) {
@@ -42,21 +67,32 @@ export async function publishOrder(order: Order): Promise<void> {
     throw new Error(`Order rejected → DLQ: ${validationError}`);
   }
 
-  await p.send({
-    topic: TOPICS.ORDERS,
-    messages: [
-      {
-        // Partition key — ensures same food type always
-        // goes to the same partition (and kitchen)
-        key: order.foodType,
-        value: JSON.stringify(order),
-        headers: {
-          "content-type": "application/json",
-          "event-type": "order.created",
+  const send = async () => {
+    const p = await getProducer();
+    await p.send({
+      topic: TOPICS.ORDERS,
+      messages: [
+        {
+          // Partition key — ensures same food type always
+          // goes to the same partition (and kitchen)
+          key: order.foodType,
+          value: JSON.stringify(order),
+          headers: {
+            "content-type": "application/json",
+            "event-type": "order.created",
+          },
         },
-      },
-    ],
-  });
+      ],
+    });
+  };
+
+  try {
+    await send();
+  } catch (error) {
+    if (!isRecoverableProducerError(error)) throw error;
+    await resetProducer();
+    await send();
+  }
 }
 
 export async function publishOrderStatus(
@@ -65,26 +101,35 @@ export async function publishOrderStatus(
   kitchenId: string,
   reason?: string
 ): Promise<void> {
-  const p = await getProducer();
-
-  await p.send({
-    topic: TOPICS.ORDER_STATUS,
-    messages: [
-      {
-        key: orderId,
-        value: JSON.stringify({
-          orderId,
-          status,
-          kitchenId,
-          updatedAt: new Date().toISOString(),
-          reason,
-        }),
-        headers: {
-          "event-type": "order.status_updated",
+  const send = async () => {
+    const p = await getProducer();
+    await p.send({
+      topic: TOPICS.ORDER_STATUS,
+      messages: [
+        {
+          key: orderId,
+          value: JSON.stringify({
+            orderId,
+            status,
+            kitchenId,
+            updatedAt: new Date().toISOString(),
+            reason,
+          }),
+          headers: {
+            "event-type": "order.status_updated",
+          },
         },
-      },
-    ],
-  });
+      ],
+    });
+  };
+
+  try {
+    await send();
+  } catch (error) {
+    if (!isRecoverableProducerError(error)) throw error;
+    await resetProducer();
+    await send();
+  }
 }
 
 async function publishDeadLetter(msg: DeadLetterMessage): Promise<void> {
@@ -104,8 +149,5 @@ async function publishDeadLetter(msg: DeadLetterMessage): Promise<void> {
 }
 
 export async function disconnectOrderProducer(): Promise<void> {
-  if (producer) {
-    await producer.disconnect();
-    producer = null;
-  }
+  await resetProducer();
 }

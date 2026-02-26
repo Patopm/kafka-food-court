@@ -35,15 +35,6 @@ export default function KitchenApp() {
   const kitchenName = process.env.NEXT_PUBLIC_KITCHEN_NAME || "Kitchen Worker";
 
   useEffect(() => {
-    void fetch(`${kitchenApiBase}/orders`)
-      .then((response) => response.json())
-      .then((payload) => {
-        if (payload.success) {
-          setOrders(payload.orders);
-        }
-      })
-      .catch(() => undefined);
-
     const eventSource = new EventSource(`${kitchenApiBase}/stream`);
 
     eventSource.onopen = () => setIsConnected(true);
@@ -64,6 +55,18 @@ export default function KitchenApp() {
           const { partitions, kitchenId: id } = message.payload;
           setAssignedPartitions(partitions);
           setKitchenId(id);
+          const params = new URLSearchParams({
+            kitchenId: id,
+            partitions: partitions.join(","),
+          });
+          void fetch(`${kitchenApiBase}/orders?${params.toString()}`)
+            .then((response) => response.json())
+            .then((payload) => {
+              if (payload.success) {
+                setOrders(payload.orders);
+              }
+            })
+            .catch(() => undefined);
           toast.info(`Partitions rebalanced: [${partitions.join(", ")}]`);
         }
       } catch (error) {

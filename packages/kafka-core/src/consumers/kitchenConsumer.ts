@@ -22,9 +22,12 @@ export async function createKitchenConsumer(
 
   await consumer.connect();
 
-  // Log rebalancing events — great for live demo
-  consumer.on("consumer.group_join", () => {
-    console.log(`[${kitchenId}] Joined consumer group — partitions assigned`);
+  // Emit assigned partitions as soon as Kafka completes a group join.
+  consumer.on(consumer.events.GROUP_JOIN, (event) => {
+    const assignment = event.payload.memberAssignment?.[TOPICS.ORDERS] ?? [];
+    const partitions = [...assignment].sort((a, b) => a - b);
+    callbacks.onRebalance?.("assign", partitions);
+    console.log(`[${kitchenId}] Joined consumer group — partitions assigned: [${partitions.join(", ")}]`);
   });
 
   await consumer.subscribe({
@@ -34,21 +37,12 @@ export async function createKitchenConsumer(
     fromBeginning: false,
   });
 
-  // Track assigned partitions for the UI
-  let assignedPartitions: number[] = [];
-
   await consumer.run({
     // Process one message at a time — guarantees ordering within partition
     eachMessage: async (payload: EachMessagePayload) => {
       const { topic, partition, message } = payload;
 
       if (!message.value) return;
-
-      // Track which partition this kitchen is consuming
-      if (!assignedPartitions.includes(partition)) {
-        assignedPartitions.push(partition);
-        callbacks.onRebalance?.("assign", assignedPartitions);
-      }
 
       try {
         const order = JSON.parse(message.value.toString()) as Order;

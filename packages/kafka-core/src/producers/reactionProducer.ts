@@ -8,9 +8,35 @@ let producer: Producer | null = null;
 async function getProducer(): Promise<Producer> {
   if (!producer) {
     producer = kafka.producer({ allowAutoTopicCreation: false });
-    await producer.connect();
+    try {
+      await producer.connect();
+    } catch (error) {
+      producer = null;
+      throw error;
+    }
   }
   return producer;
+}
+
+async function resetProducer(): Promise<void> {
+  if (!producer) return;
+  try {
+    await producer.disconnect();
+  } catch {
+    // Best effort cleanup; we'll recreate on next send.
+  } finally {
+    producer = null;
+  }
+}
+
+function isRecoverableProducerError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes("producer is disconnected") ||
+    message.includes("the producer is disconnected") ||
+    message.includes("getaddrinfo enotfound") ||
+    message.includes("connection error")
+  );
 }
 
 export async function publishReaction(
@@ -21,27 +47,34 @@ export async function publishReaction(
     throw new Error(`Invalid reaction: ${reaction}`);
   }
 
-  const p = await getProducer();
   const event: ReactionEvent = {
     userId,
     reaction,
     timestamp: new Date().toISOString(),
   };
 
-  await p.send({
-    topic: TOPICS.REACTIONS,
-    messages: [
-      {
-        key: userId, // same user's reactions stay ordered
-        value: JSON.stringify(event),
-      },
-    ],
-  });
+  const send = async () => {
+    const p = await getProducer();
+    await p.send({
+      topic: TOPICS.REACTIONS,
+      messages: [
+        {
+          key: userId, // same user's reactions stay ordered
+          value: JSON.stringify(event),
+        },
+      ],
+    });
+  };
+
+  try {
+    await send();
+  } catch (error) {
+    if (!isRecoverableProducerError(error)) throw error;
+    await resetProducer();
+    await send();
+  }
 }
 
 export async function disconnectReactionProducer(): Promise<void> {
-  if (producer) {
-    await producer.disconnect();
-    producer = null;
-  }
+  await resetProducer();
 }
