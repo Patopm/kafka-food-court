@@ -30,7 +30,6 @@ locals {
       location /kitchens/${kitchen}/ {
         ${local.kitchen_allow_directives}
         deny all;
-        rewrite ^/kitchens/${kitchen}/?(.*)$ /$1 break;
         proxy_pass http://127.0.0.1:${3101 + idx};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -40,6 +39,20 @@ locals {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
       }
+    EOT
+  ])
+
+  kitchen_nginx_redirects = join("\n", [
+    for kitchen in var.kitchen_instances : <<-EOT
+      location = /kitchens/${kitchen} {
+        return 301 /kitchens/${kitchen}/;
+      }
+    EOT
+  ])
+
+  kitchen_build_commands = join("\n", [
+    for kitchen in var.kitchen_instances : <<-EOT
+      sudo -u ubuntu bash -lc 'cd /opt/kafka-food-court/apps/kitchen-app && KITCHEN_BASE_PATH=/kitchens/${kitchen} KITCHEN_DIST_DIR=.next-${kitchen} NODE_OPTIONS=--max-old-space-size=512 bun run build || (sleep 10 && KITCHEN_BASE_PATH=/kitchens/${kitchen} KITCHEN_DIST_DIR=.next-${kitchen} NODE_OPTIONS=--max-old-space-size=512 bun run build)'
     EOT
   ])
 
@@ -59,6 +72,8 @@ locals {
       Environment=DB_FILE_PATH=/opt/kafka-food-court/data/food-court-db.json
       Environment=KITCHEN_ID=${kitchen}
       Environment=NEXT_PUBLIC_KITCHEN_NAME=${kitchen}
+      Environment=KITCHEN_BASE_PATH=/kitchens/${kitchen}
+      Environment=KITCHEN_DIST_DIR=.next-${kitchen}
       ExecStart=/home/ubuntu/.bun/bin/bunx next start -p ${3101 + idx}
       Restart=always
       RestartSec=5
@@ -187,6 +202,8 @@ resource "aws_instance" "app" {
     app_git_ref             = var.app_git_ref
     enable_kafka_ui         = var.enable_kafka_ui
     kitchen_nginx_locations = local.kitchen_nginx_locations
+    kitchen_nginx_redirects = local.kitchen_nginx_redirects
+    kitchen_build_commands  = local.kitchen_build_commands
     kitchen_systemd_units   = local.kitchen_systemd_units
     kitchen_service_names   = local.kitchen_service_names
   })
