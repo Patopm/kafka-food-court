@@ -7,12 +7,12 @@ sleep 5
 
 echo "📦 Creating Kafka topics..."
 
-# orders - 3 partitions (one per food type: pizza, burger, taco)
+# orders - 2 partitions (balanced across kitchen-a and kitchen-b)
 docker exec $KAFKA_CONTAINER /opt/kafka/bin/kafka-topics.sh \
   --create --if-not-exists \
   --bootstrap-server localhost:9092 \
   --topic orders \
-  --partitions 3 \
+  --partitions 2 \
   --replication-factor 1 \
   --config retention.ms=86400000
 

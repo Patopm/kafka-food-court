@@ -27,13 +27,14 @@ export const FOOD_TYPE_PARTITION: Record<string, number> = {
 
 export const VALID_FOOD_TYPES = Object.values(FOOD_TYPES);
 export const VALID_REACTIONS = ["🔥", "👏", "😮", "👍", "🚀"];
-export const ORDERS_TOPIC_PARTITIONS = 3;
+export const ORDERS_TOPIC_PARTITIONS = 2;
 
 export function getOrderPartition(orderId: string): number {
-  const seed = orderId.slice(0, 8);
-  const parsed = Number.parseInt(seed, 16);
-  if (Number.isNaN(parsed)) return 0;
-  return parsed % ORDERS_TOPIC_PARTITIONS;
+  let hash = 0;
+  for (let i = 0; i < orderId.length; i += 1) {
+    hash = ((hash << 5) - hash + orderId.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) % ORDERS_TOPIC_PARTITIONS;
 }
 
 export type FoodType = (typeof FOOD_TYPES)[keyof typeof FOOD_TYPES];
