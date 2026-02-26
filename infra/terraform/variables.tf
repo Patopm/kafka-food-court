@@ -10,6 +10,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "aws_profile" {
+  description = "AWS CLI/profile name used by Terraform AWS provider"
+  type        = string
+  default     = "personal"
+}
+
 variable "vpc_id" {
   description = "VPC ID where the instance will run"
   type        = string

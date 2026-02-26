@@ -40,3 +40,7 @@ data/
 
 infra/terraform/.terraform/
 .terraform
+infra/terraform/tfplan
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.*
+infra/terraform/terraform.tfvars
