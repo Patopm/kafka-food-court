@@ -27,7 +27,7 @@ locals {
 
   kitchen_nginx_locations = join("\n\n", [
     for idx, kitchen in var.kitchen_instances : <<-EOT
-      location /kitchens/${kitchen}/ {
+      location /kitchens/${kitchen} {
         ${local.kitchen_allow_directives}
         deny all;
         proxy_pass http://127.0.0.1:${3101 + idx};
@@ -38,14 +38,6 @@ locals {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-      }
-    EOT
-  ])
-
-  kitchen_nginx_redirects = join("\n", [
-    for kitchen in var.kitchen_instances : <<-EOT
-      location = /kitchens/${kitchen} {
-        return 301 /kitchens/${kitchen}/;
       }
     EOT
   ])
@@ -202,7 +194,6 @@ resource "aws_instance" "app" {
     app_git_ref             = var.app_git_ref
     enable_kafka_ui         = var.enable_kafka_ui
     kitchen_nginx_locations = local.kitchen_nginx_locations
-    kitchen_nginx_redirects = local.kitchen_nginx_redirects
     kitchen_build_commands  = local.kitchen_build_commands
     kitchen_systemd_units   = local.kitchen_systemd_units
     kitchen_service_names   = local.kitchen_service_names
