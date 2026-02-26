@@ -36,6 +36,9 @@ export async function GET() {
 
   const stream = new ReadableStream({
     start(controller) {
+      // Send an initial chunk immediately so proxies/clients establish SSE quickly.
+      controller.enqueue(encoder.encode(": connected\n\n"));
+
       orderListener = (order: Order) => {
         try {
           const data = `data: ${JSON.stringify({ type: "order", payload: order })}\n\n`;
@@ -75,6 +78,7 @@ export async function GET() {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }
